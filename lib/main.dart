@@ -29,6 +29,8 @@ class HomePage extends StatelessWidget {
       'Root': {
         'firstName': {
           'type': 'string',
+          'help': 'Help string',
+          'hint': 'Hint text',
           'rules': [
             {'type': 'required', 'message': 'Required'}
           ]
@@ -46,12 +48,13 @@ class HomePage extends StatelessWidget {
         },
         'confirm': {
           'type': 'string',
+          'template': 'password',
           'rules': [
             {'type': 'required', 'message': 'Required'},
             {
               'type': 'equal',
               'message': 'Not matched',
-              'expression': 'password'
+              'expression': '^.password'
             },
           ]
         },
@@ -77,7 +80,18 @@ class HomePage extends StatelessWidget {
           child: Card(
             child: Padding(
                 padding: const EdgeInsets.all(20),
-                child: FOEditorForm(form: form)),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FOEditorForm(form: form),
+                    const SizedBox(
+                      height: 20,
+                    ),
+                    ElevatedButton(
+                        onPressed: () => onPressed(context),
+                        child: const Text('Submit')),
+                  ],
+                )),
           ),
         ),
       ),
@@ -89,8 +103,7 @@ class HomePage extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Form data'),
-        content: Text(
-            true || form.isValid ? json.encode(form.value) : "Invalid data"),
+        content: Text(form.isValid ? json.encode(form.value) : "Invalid data"),
       ),
     );
   }

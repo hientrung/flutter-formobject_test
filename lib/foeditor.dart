@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:formobject/formobject.dart';
 
 typedef FOEditorCreator = FOEditorBase Function(FOField field);
@@ -9,15 +12,22 @@ const editorFor = FOEditorBase.editor;
 
 abstract class FOEditorBase extends StatelessWidget {
   final FOField field;
-  late final String caption;
-  late final String? help;
 
-  FOEditorBase({
+  const FOEditorBase({
     super.key,
     required this.field,
-  }) {
-    caption = field.meta['caption'] ?? field.name;
-    help = field.meta['help'];
+  });
+
+  String? get help => field.meta['help'];
+  String get caption => field.meta['caption'] ?? _getCaption();
+
+  String _getCaption() {
+    final n = field.name
+        .replaceAll('_', ' ')
+        .replaceAllMapped(
+            RegExp('[A-Z]'), (m) => ' ${m.group(0)!.toLowerCase()}')
+        .trim();
+    return n[0].toUpperCase() + n.substring(1);
   }
 
   static final Map<String, FOEditorCreator> templates = {};
@@ -29,6 +39,7 @@ abstract class FOEditorBase extends StatelessWidget {
     if (templates.isEmpty) _defaultRegister();
     final arr = <String>{
       if (template != null) template,
+      if (field.meta['template'] != null) field.meta['template'],
       field.fullName,
       field.name,
       field.type.name
@@ -48,7 +59,10 @@ abstract class FOEditorBase extends StatelessWidget {
     register({
       'string': (field) => FOEditorProperty.string(field),
       'int': ((field) => FOEditorProperty.int(field)),
-      'password': (field) => FOEditorProperty.string(field),
+      'password': (field) => FOEditorProperty.string(
+            field,
+            obscureText: true,
+          ),
       'expression': (field) => FOEditorProperty.expression(field),
     });
   }
@@ -63,6 +77,7 @@ class FOEditorForm extends StatelessWidget {
   Widget build(BuildContext context) {
     final lst = form.childs.toList();
     return ListView.builder(
+      shrinkWrap: true,
       itemCount: lst.length,
       itemBuilder: (ctx, ind) => editorFor(lst[ind]),
     );
@@ -70,12 +85,13 @@ class FOEditorForm extends StatelessWidget {
 }
 
 class FOEditorObject extends FOEditorBase {
-  FOEditorObject({super.key, required super.field});
+  const FOEditorObject({super.key, required super.field});
 
   @override
   Widget build(Object context) {
     final lst = field.childs.toList();
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           caption,
@@ -98,7 +114,7 @@ class FOEditorProperty extends FOEditorBase {
   final Widget Function(BuildContext context, FOEditorProperty editor) builder;
   final VoidCallback? onDispose;
 
-  FOEditorProperty({
+  const FOEditorProperty({
     required super.field,
     required this.builder,
     super.key,
@@ -117,7 +133,10 @@ class FOEditorProperty extends FOEditorBase {
   @override
   Widget build(BuildContext context) => builder(context, this);
 
-  factory FOEditorProperty.string(FOField field) {
+  factory FOEditorProperty.string(
+    FOField field, {
+    bool obscureText = false,
+  }) {
     final ctrl = TextEditingController(text: field.value);
     final sub = field.onChanged((value) {
       if (ctrl.text != value) ctrl.text = value;
@@ -125,14 +144,21 @@ class FOEditorProperty extends FOEditorBase {
     return FOEditorProperty(
       field: field,
       onDispose: () => sub.dispose(),
-      builder: (ctx, ed) => TextField(
-        controller: ctrl,
-        decoration: InputDecoration(
-          hintText: ed.hint,
-          helperText: ed.help,
-          labelText: ed.caption,
+      builder: (ctx, ed) => FOObserverWidget<String?>(
+        listenOn: ed.field.onStatusChanged,
+        initValue: null,
+        parser: (stt) => stt == FOValidStatus.pending ? null : ed.field.error,
+        builder: (ctx, err) => TextField(
+          controller: ctrl,
+          obscureText: obscureText,
+          decoration: InputDecoration(
+            hintText: ed.hint,
+            helperText: ed.help,
+            labelText: ed.caption,
+            errorText: err,
+          ),
+          onChanged: (v) => ed.field.value = v,
         ),
-        onChanged: (v) => ed.field.value = v,
       ),
     );
   }
@@ -150,6 +176,7 @@ class FOEditorProperty extends FOEditorBase {
       builder: (ctx, ed) => TextField(
         controller: ctrl,
         keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         decoration: InputDecoration(
           hintText: ed.hint,
           helperText: ed.help,
@@ -163,22 +190,43 @@ class FOEditorProperty extends FOEditorBase {
   factory FOEditorProperty.expression(FOField field) {
     return FOEditorProperty(
       field: field,
-      builder: (ctx, ed) => _ExpressionValue(ed),
+      builder: (ctx, ed) => FOObserverWidget(
+        listenOn: field.onChanged,
+        initValue: field.value,
+        builder: (context, value) =>
+            Text(value == null ? '' : value.toString()),
+      ),
     );
   }
 }
 
-class _ExpressionValue extends StatefulWidget {
-  final FOEditorProperty editor;
-  const _ExpressionValue(this.editor);
+class FOObserverWidget<T> extends StatefulWidget {
+  final FOSubscription Function(FOChangedHandler) listenOn;
+  final Widget Function(BuildContext context, T value) builder;
+  final T initValue;
+  final T Function(dynamic value)? parser;
+  final int debounce;
+
+  const FOObserverWidget({
+    super.key,
+    required this.listenOn,
+    required this.builder,
+    required this.initValue,
+    this.parser,
+    this.debounce = 0,
+  });
 
   @override
-  State<StatefulWidget> createState() => _ExpressionValueState();
+  State<StatefulWidget> createState() => _FOObserverWidgetState<T>();
 }
 
-class _ExpressionValueState extends State<_ExpressionValue> {
+class _FOObserverWidgetState<T> extends State<FOObserverWidget<T>> {
   FOSubscription? sub;
-  String value = '';
+  late T value;
+  late T oldValue;
+  bool changing = false;
+  Timer? timerAsync;
+  Timer? timerUpdate;
 
   @override
   void initState() {
@@ -187,26 +235,50 @@ class _ExpressionValueState extends State<_ExpressionValue> {
   }
 
   @override
-  void didUpdateWidget(covariant _ExpressionValue oldWidget) {
+  void didUpdateWidget(covariant FOObserverWidget<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.editor.field != oldWidget.editor.field) subscribe();
+    if (widget.listenOn != oldWidget.listenOn) {
+      subscribe();
+    }
   }
 
   @override
-  Widget build(BuildContext context) => Text(value);
+  Widget build(BuildContext context) => widget.builder(context, value);
+
+  void update() {
+    if (oldValue == value) return;
+    setState(() {
+      oldValue = value;
+    });
+  }
 
   void subscribe() {
     unsubscribe();
-    value = widget.editor.field.value;
-    sub = widget.editor.field.onChanged((val) {
-      setState(() {
-        value = val == null ? '' : val.toString();
+    value = widget.initValue;
+    oldValue = value;
+    sub = widget.listenOn((val) {
+      value = widget.parser != null ? widget.parser!(val) : val;
+      timerAsync ??= Timer(Duration.zero, () {
+        if (widget.debounce == 0) {
+          update();
+        } else {
+          timerUpdate?.cancel();
+          timerUpdate = Timer(Duration(milliseconds: widget.debounce), () {
+            update();
+            timerUpdate = null;
+          });
+        }
+        timerAsync = null;
       });
     });
   }
 
   void unsubscribe() {
     sub?.dispose();
+    timerAsync?.cancel();
+    timerAsync = null;
+    timerUpdate?.cancel();
+    timerUpdate = null;
   }
 
   @override
