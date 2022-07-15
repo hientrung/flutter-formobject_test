@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:formobject/formobject.dart';
-import 'package:formobject_test/foeditor.dart';
 
 void main() {
   runApp(MaterialApp(
@@ -15,11 +14,18 @@ class HomePage extends StatelessWidget {
   HomePage({Key? key}) : super(key: key);
   final form = FOForm({
     'data': {
-      'firstName': 'Test',
+      'firstName': 'Testing',
       'lastName': '',
       'password': '',
       'confirm': '',
-      'age': 18,
+      'age': null,
+      'salary': 1.23,
+      'birthday': null,
+      'argee': null,
+      'accounts': [
+        {'name': 'Facebook', 'value': false},
+        {'name': 'Google', 'value': false},
+      ]
     },
     'meta': {
       ':root': {
@@ -64,6 +70,32 @@ class HomePage extends StatelessWidget {
             {'type': 'range', 'message': 'Must great than 18', 'min': 18}
           ]
         },
+        'salary': {
+          'type': 'double',
+        },
+        'birthday': {
+          'type': 'datetime',
+        },
+        'agree': {
+          'type': 'bool',
+          'caption': 'I agree to the terms of use',
+          'rules': [
+            {'type': 'requiredTrue', 'message': 'Should agree'}
+          ],
+        },
+        'accounts': {
+          'type': 'list',
+          'itemType': {'type': 'object', 'objectType': 'AccountType'}
+        },
+      },
+      'AccountType': {
+        'name': {
+          'type': 'string',
+          'rules': [
+            {'type': 'required', 'message': 'Required'}
+          ]
+        },
+        'value': {'type': 'bool'}
       }
     }
   });
@@ -80,17 +112,29 @@ class HomePage extends StatelessWidget {
           child: Card(
             child: Padding(
                 padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FOEditorForm(form: form),
-                    const SizedBox(
-                      height: 20,
-                    ),
-                    ElevatedButton(
-                        onPressed: () => onPressed(context),
-                        child: const Text('Submit')),
-                  ],
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      FOEditorForm(form: form),
+                      const SizedBox(
+                        height: 20,
+                      ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ElevatedButton(
+                              onPressed: () => onSubmit(context),
+                              child: const Text('Submit')),
+                          const SizedBox(
+                            width: 10,
+                          ),
+                          ElevatedButton(
+                              onPressed: () => onReset(),
+                              child: const Text('Reset')),
+                        ],
+                      )
+                    ],
+                  ),
                 )),
           ),
         ),
@@ -98,13 +142,17 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  void onPressed(BuildContext context) {
+  void onSubmit(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Form data'),
-        content: Text(form.isValid ? json.encode(form.value) : "Invalid data"),
+        content: Text(form.isValid ? json.encode(form) : "Invalid data"),
       ),
     );
+  }
+
+  void onReset() {
+    form.reset();
   }
 }
