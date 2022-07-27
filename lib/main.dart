@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:formobject/formobject.dart';
 
@@ -123,6 +121,12 @@ class HomePage extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           ElevatedButton(
+                              onPressed: () => onAdd(),
+                              child: const Text('Add')),
+                          const SizedBox(
+                            width: 10,
+                          ),
+                          ElevatedButton(
                               onPressed: () => onSubmit(context),
                               child: const Text('Submit')),
                           const SizedBox(
@@ -142,12 +146,16 @@ class HomePage extends StatelessWidget {
     );
   }
 
+  void onAdd() {
+    (form['accounts'] as FOList).add({'name': '', 'value': true});
+  }
+
   void onSubmit(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Form data'),
-        content: Text(form.isValid ? json.encode(form) : "Invalid data"),
+        content: Text(form.isValid ? form.value.toString() : "Invalid data"),
       ),
     );
   }
